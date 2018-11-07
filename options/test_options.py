@@ -10,6 +10,9 @@ class TestOptions(BaseOptions):
         parser.add_argument('--phase', type=str, default='paris_256', help='train, val, test, etc')
         parser.add_argument('--which_epoch', type=str, default='20', help='which epoch to load? set to latest to use latest cached model')
         parser.add_argument('--how_many', type=int, default=50, help='how many test images to run')
+        parser.add_argument('--fineWidth', type=int, default=320, help='how many test images to run')
+        parser.add_argument('--fineHeight', type=int, default=180, help='how many test images to run')
+        parser.add_argument('--run_server', action='store_true')
         self.isTrain = False
 
         return parser

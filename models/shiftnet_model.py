@@ -19,19 +19,28 @@ class ShiftNetModel(BaseModel):
         self.opt = opt
         self.isTrain = opt.isTrain
         # define tensors
-        self.input_A = self.Tensor(opt.batchSize, opt.input_nc,
-                                   opt.fineSize, opt.fineSize)
+        
+        if opt.run_server:
+            self.input_A = self.Tensor(opt.batchSize, opt.input_nc,
+                                       opt.fineWidth, opt.fineHeight)
+        else:
+            self.input_A = self.Tensor(opt.batchSize, opt.input_nc,
+                                       opt.fineSize, opt.fineSize)
+        
         self.input_B = self.Tensor(opt.batchSize, opt.output_nc,
                                    opt.fineSize, opt.fineSize)
 
         # batchsize should be 1 for mask_global
-        self.mask_global = torch.ByteTensor(1, 1, \
-                                 opt.fineSize, opt.fineSize)
-
+        if opt.run_server:
+            self.mask_global = torch.ByteTensor(1, 1, opt.fineHeight, opt.fineWidth)
+        else:
+            self.mask_global = torch.ByteTensor(1, 1, opt.fineSize, opt.fineSize)
+    
         # Here we need to set an artificial mask_global(not to make it broken, so center hole is ok.)
         self.mask_global.zero_()
-        self.mask_global[:, :, int(self.opt.fineSize/4) + self.opt.overlap : int(self.opt.fineSize/2) + int(self.opt.fineSize/4) - self.opt.overlap,\
-                                int(self.opt.fineSize/4) + self.opt.overlap: int(self.opt.fineSize/2) + int(self.opt.fineSize/4) - self.opt.overlap] = 1
+        if not opt.run_server:
+            self.mask_global[:, :, int(self.opt.fineSize/4) + self.opt.overlap : int(self.opt.fineSize/2) + int(self.opt.fineSize/4) - self.opt.overlap,\
+                                   int(self.opt.fineSize/4) + self.opt.overlap: int(self.opt.fineSize/2) + int(self.opt.fineSize/4) - self.opt.overlap] = 1
 
         self.mask_type = opt.mask_type
         self.gMask_opts = {}
@@ -148,6 +157,16 @@ class ShiftNetModel(BaseModel):
         self.input_A.narrow(1,1,1).masked_fill_(self.mask_global, 2*104.0/255.0 - 1.0)
         self.input_A.narrow(1,2,1).masked_fill_(self.mask_global, 2*117.0/255.0 - 1.0)
 
+    def set_input_infer(self, input_A, bboxes):
+
+        (x1, y1), (x2, y2) = bboxes[0]
+        self.mask_global.zero_()
+        self.mask_global[:, :, x1:x2, y1:y2] = 1
+
+        self.input_A.resize_(input_A.size()).copy_(input_A)
+        self.input_A.narrow(1,0,1).masked_fill_(self.mask_global, 2*123.0/255.0 - 1.0)
+        self.input_A.narrow(1,1,1).masked_fill_(self.mask_global, 2*104.0/255.0 - 1.0)
+        self.input_A.narrow(1,2,1).masked_fill_(self.mask_global, 2*117.0/255.0 - 1.0)
 
     def set_latent_mask(self, mask_global, layer_to_last, threshold):
         self.ng_shift_list[0].set_mask(mask_global, layer_to_last, threshold)

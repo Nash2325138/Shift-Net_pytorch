@@ -5,7 +5,11 @@ import time
 
 import numpy as np
 from PIL import Image, ImageDraw
+import torch
+import torchvision.transforms as transforms
 
+from options.test_options import TestOptions
+from models.models import create_model
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -25,7 +29,8 @@ class ShiftNetInpaintingWorker:
     def __init__(
         self, logger=logging.getLogger(__name__),
         image_height=180, image_width=320,
-        checkpoint_dir='model_logs/release_places2_256',
+        checkpoint_dir='checkpoints/exp_unet_shift_triple',
+        which_epoch='latest',
         refine=False
     ):
         self.logger = logger
@@ -34,18 +39,24 @@ class ShiftNetInpaintingWorker:
         # ng.get_gpus(1)
 
         self.checkpoint_dir = checkpoint_dir
-        self.grid = 8
-        # Image size that the model could handle
-        self.ph_height = image_height // self.grid * self.grid
-        self.ph_width = image_width // self.grid * self.grid * 2
+        self.which_epoch = which_epoch
+
+        self.image_height = image_height
+        self.image_width = image_width
         assert os.path.exists(self.checkpoint_dir)
 
         self._setup(refine)
         self.logger.info("Initialization done")
+        self.toTensor = transforms.ToTensor()
 
     def _setup(self, refine):
         """ Setup the model here"""
-        self.model = None
+        arg_str = f'--checkpoints_dir {self.checkpoint_dir} --which_epoch {self.which_epoch} \
+                    --batchSize 1 --run_server\
+                    --fineWidth {self.image_width} --fineHeight {self.image_height}'
+        self.opt = TestOptions().parse(arg_str)
+        self.model = create_model(self.opt)
+        print(type(self.model))
 
     def _draw_bboxes(self, img, bboxes):
         draw = ImageDraw.Draw(img)
@@ -70,38 +81,15 @@ class ShiftNetInpaintingWorker:
                 result_images.append(result_image)
                 self.logger.warning(f"No bboxes in frame {i}, skipped")
                 continue
-            mask = np.zeros(image.shape)
-            (x1, y1), (x2, y2) = bboxes[0]
-            mask[y1:y2, x1:x2, :] = [255, 255, 255]
-            image_ = image[:h//self.grid*self.grid, :w//self.grid*self.grid, :]
-            mask = mask[:h//self.grid*self.grid, :w//self.grid*self.grid, :]
 
-            """ Do the inference here"""
-            image_ = np.expand_dims(image_, 0)
-            mask = np.expand_dims(mask, 0)
-            input_image = np.concatenate([image_, mask], axis=2)
-            if self.refine:
-                result_np, dump_x1, dump_x2_ro = self.sess.run(
-                    [self.output, self.model.x1, self.model.x2_refine_only],
-                    feed_dict={self.input_image_ph: input_image})
-                dump_img_o = Image.fromarray(
-                    result_np[0].astype('uint8')[:, :, ::-1])
-                dump_img_x1 = Image.fromarray(
-                    ((dump_x1+1)*127.5)[0].astype('uint8'))
-                dump_img_x2_ro = Image.fromarray(
-                    ((dump_x2_ro+1)*127.5)[0].astype('uint8'))
-                dump_img_o.save('debug_o.png')
-                dump_img_x1.save('debug_x1.png')
-                dump_img_x2_ro.save('debug_x2.png')
-            else:
-                result_np = self.sess.run(
-                    self.output,
-                    feed_dict={self.input_image_ph: input_image})
+            """ Do inference here """
+            image = self.toTensor(image).unsqueeze(0)
+            print(image.shape)
+            self.model.set_input_infer(image, bboxes)
+            self.model.forward()
+
             """ Put the result back to original size and draw bbox if needed"""
-            result = image.copy()
-            result[
-               :h//self.grid*self.grid, :w//self.grid*self.grid, :
-            ] = result_np
+            result = util.tensor2im(self.model.fake_B.data[0])
             result_image = Image.fromarray(
                 result.astype('uint8')[:, :, ::-1])
             if draw_bbox:

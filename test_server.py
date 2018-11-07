@@ -29,9 +29,13 @@ def get_args():
     parser.add_argument('-refine', '--refine', default=False,
                         action='store_true',
                         help='Do only stage 2')
+
     parser.add_argument('--checkpoint_dir',
-                        default='', type=str,
+                        default='checkpoints', type=str,
                         help='The directory of shiftnet checkpoint.')
+    parser.add_argument('--which_epoch',
+                        default='latest', type=str,
+                        help='Which epoch to load (default: latest).')
     return parser.parse_args()
 
 
@@ -114,5 +118,6 @@ if __name__ == '__main__':
         image_height=args.image_height,
         image_width=args.image_width,
         checkpoint_dir=args.checkpoint_dir,
+        which_epoch=args.which_epoch
     )
     app.run(host='0.0.0.0', port=args.port)
